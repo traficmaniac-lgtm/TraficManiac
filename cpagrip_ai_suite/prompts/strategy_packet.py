@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import json
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+from typing import Dict
+
 from typing import Dict, List, Tuple
+ main
 
 from ..core.offer_model import OfferNormalized
 
+
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+def build_strategy_packet(offer: OfferNormalized) -> str:
 
 def _best_format(traffic_allowed: List[str], lp_type_guess: str | None) -> str:
     text = " ".join(traffic_allowed).lower()
@@ -42,6 +49,7 @@ def build_strategy_packet(offer: OfferNormalized) -> str:
     best_device = _best_device(offer.devices)
     breakeven_clicks = max(int((offer.payout_usd / max(offer.epc or 0.18, 0.18)) * 0.6), 120)
     initial_clicks = max(breakeven_clicks * 2, 300)
+ main
     packet: Dict[str, object] = {
         "task": "build_profitable_strategy",
         "traffic_source": "PropellerAds",
@@ -56,6 +64,8 @@ def build_strategy_packet(offer: OfferNormalized) -> str:
             "goal": "profit_fast_and_safe",
             "ban_risk_priority": "high",
         },
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+
         "recommendations": {
             "best_format_guess": best_format,
             "best_device_guess": best_device,
@@ -64,6 +74,7 @@ def build_strategy_packet(offer: OfferNormalized) -> str:
             "breakeven_clicks_estimate": breakeven_clicks,
             "initial_test_clicks": initial_clicks,
         },
+ main
         "context": {
             "geo_timezone": "Europe/Kyiv",
             "language": "ru",

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+from typing import List
+
 from typing import List, Tuple
+ main
 
 TIER1 = {"US", "CA", "UK", "GB", "AU", "DE", "FR"}
 
@@ -10,9 +14,12 @@ TIER1 = {"US", "CA", "UK", "GB", "AU", "DE", "FR"}
 class OfferScore:
     score: float
     notes: str
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+
     breakdown: List[Tuple[str, float]]
     risk_level: str
     risk_reason: str
+ main
     risk_flag: bool
 
 
@@ -48,6 +55,8 @@ def _epc_bonus(epc: float | None, cr: float | None) -> float:
     return bonus
 
 
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+
 def _risk_level_from_title(title: str, conversion_type: str | None) -> tuple[str, str]:
     text = title.lower()
     conv = (conversion_type or "").lower()
@@ -62,11 +71,15 @@ def _risk_level_from_title(title: str, conversion_type: str | None) -> tuple[str
     return "medium", "Standard flow"
 
 
+ main
 def score_offer(
     payout_usd: float,
     conversion_type: str | None,
     geo_allowed: List[str],
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+
     offer_title: str,
+ main
     epc: float | None,
     cr: float | None,
     incentive_allowed: bool | None,
@@ -74,6 +87,44 @@ def score_offer(
     cap: float | None,
 ) -> OfferScore:
     notes: List[str] = []
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+    score = payout_usd
+    notes.append(f"base payout={payout_usd}")
+
+    conversion_gain = _conversion_bonus(conversion_type)
+    score += payout_usd * conversion_gain
+    notes.append(f"conversion bonus={conversion_gain:.2f}")
+
+    if any(geo in TIER1 for geo in geo_allowed):
+        tier_bonus = 0.15 * payout_usd
+        score += tier_bonus
+        notes.append(f"tier1 bonus={tier_bonus:.2f}")
+
+    extra = _epc_bonus(epc, cr)
+    score += extra
+    if extra:
+        notes.append(f"epc/cr bonus={extra:.2f}")
+
+    if incentive_allowed is False and conversion_type and "pin" in conversion_type.lower():
+        score -= payout_usd * 0.12
+        notes.append("incentive off + pin penalty")
+
+    traffic_penalty = _traffic_penalty(traffic_forbidden)
+    score += payout_usd * traffic_penalty
+    if traffic_penalty:
+        notes.append(f"traffic penalty factor={traffic_penalty:.2f}")
+
+    if cap is not None and cap < 20:
+        score -= payout_usd * 0.2
+        notes.append("cap too low penalty")
+
+    risk_flag = (incentive_allowed is False) or any(
+        key in " ".join(traffic_forbidden).lower()
+        for key in ["brand", "trademark", "adult", "gambling", "vpn", "proxy"]
+    )
+
+    return OfferScore(score=round(score, 3), notes="; ".join(notes), risk_flag=risk_flag)
+
     breakdown: List[Tuple[str, float]] = []
     score = 0.0
 
@@ -131,3 +182,4 @@ def score_offer(
         risk_reason=risk_reason,
         risk_flag=risk_flag,
     )
+ main

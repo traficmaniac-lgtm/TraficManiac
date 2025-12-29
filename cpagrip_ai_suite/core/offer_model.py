@@ -60,6 +60,10 @@ class OfferNormalized:
     lp_type_guess: Optional[str]
     network_rules: Optional[str]
     risk_flag: bool
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+    score: float
+    score_notes: str
+    missing_fields: List[str]
     risk_level: str
     risk_reason: str
     score: float
@@ -67,6 +71,7 @@ class OfferNormalized:
     score_notes: str
     missing_fields: List[str]
     traffic_fit: str
+ main
     raw_dump: Dict[str, Any]
     updated_at: str
 
@@ -115,9 +120,12 @@ class OfferNormalized:
                 "updated_at": self.updated_at,
                 "missing_fields": missing,
                 "raw_dump": self.raw_dump,
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+
                 "score": self.score,
                 "score_breakdown": self.score_breakdown,
                 "risk": {"level": self.risk_level, "reason": self.risk_reason},
+ main
             },
         }
         return offer_payload
@@ -158,7 +166,10 @@ def normalize_offer(raw: OfferRaw, tracking_id_macro: str = "${SUBID}") -> Offer
         payout_usd=payout_usd,
         conversion_type=conversion_type,
         geo_allowed=geo_allowed,
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+
         offer_title=raw.name,
+ main
         epc=raw.epc,
         cr=raw.cr,
         incentive_allowed=raw.incentive_allowed,
@@ -193,6 +204,11 @@ def normalize_offer(raw: OfferRaw, tracking_id_macro: str = "${SUBID}") -> Offer
         lp_type_guess=lp_type_guess,
         network_rules=raw.network_rules,
         risk_flag=score.risk_flag,
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+        score=score.score,
+        score_notes=score.notes,
+        missing_fields=missing_fields,
+
         risk_level=score.risk_level,
         risk_reason=score.risk_reason,
         score=score.score,
@@ -200,6 +216,7 @@ def normalize_offer(raw: OfferRaw, tracking_id_macro: str = "${SUBID}") -> Offer
         score_notes=score.notes,
         missing_fields=missing_fields,
         traffic_fit=traffic_fit,
+ main
         raw_dump=asdict(raw),
         updated_at=datetime.utcnow().isoformat() + "Z",
     )
@@ -250,6 +267,8 @@ def parse_offer(item: Dict[str, Any]) -> OfferRaw:
     )
 
 
+ codex/update-cpagrip-offer-aggregator-ojcgo1
+
 def _infer_traffic_fit(allowed_sources: List[str]) -> str:
     text = " ".join(allowed_sources).lower()
     has_push = "push" in text
@@ -263,6 +282,7 @@ def _infer_traffic_fit(allowed_sources: List[str]) -> str:
     return "Unknown"
 
 
+ main
 def _safe_float(value: Any) -> Optional[float]:
     try:
         if value in (None, ""):
