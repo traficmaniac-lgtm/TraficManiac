@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any, Dict, List, Tuple
 
@@ -24,6 +25,14 @@ class StrategyService:
         self.ai_client = ai_client
         self.validator = Draft202012Validator(PROP_SCHEMA)
 
+    @staticmethod
+    def _fingerprint_payload(payload: Dict[str, Any]) -> str:
+        try:
+            serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        except TypeError:
+            serialized = repr(payload)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
     def validate(self, payload: Dict[str, Any]) -> Tuple[bool, List[str]]:
         errors = sorted(self.validator.iter_errors(payload), key=lambda e: e.path)
         if not errors:
@@ -32,7 +41,13 @@ class StrategyService:
         return False, messages
 
     def generate(self, ai_packet: Dict[str, Any], offer_id: str, regenerate: bool = False) -> StrategyResult:
-        cache_key = self.cache.build_key(offer_id, ai_packet.get("traffic_source", "PropellerAds"), ai_packet.get("constraints", {}).get("test_budget_usd", 30))
+        payload_fingerprint = self._fingerprint_payload(ai_packet)
+        cache_key = self.cache.build_key(
+            offer_id,
+            ai_packet.get("traffic_source", "PropellerAds"),
+            ai_packet.get("constraints", {}).get("test_budget_usd", 30),
+            payload_fingerprint,
+        )
         if not regenerate:
             cached = self.cache.get(cache_key)
             if cached:
