@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .scoring import OfferScore, score_offer
 from ..utils.geo import extract_geo_list, normalize_country_codes
 from ..utils.text import split_csv
+from .scoring import OfferScore, score_offer
 
 
 @dataclass
@@ -60,10 +60,6 @@ class OfferNormalized:
     lp_type_guess: Optional[str]
     network_rules: Optional[str]
     risk_flag: bool
- codex/update-cpagrip-offer-aggregator-ojcgo1
-    score: float
-    score_notes: str
-    missing_fields: List[str]
     risk_level: str
     risk_reason: str
     score: float
@@ -71,7 +67,6 @@ class OfferNormalized:
     score_notes: str
     missing_fields: List[str]
     traffic_fit: str
- main
     raw_dump: Dict[str, Any]
     updated_at: str
 
@@ -120,12 +115,10 @@ class OfferNormalized:
                 "updated_at": self.updated_at,
                 "missing_fields": missing,
                 "raw_dump": self.raw_dump,
- codex/update-cpagrip-offer-aggregator-ojcgo1
-
                 "score": self.score,
                 "score_breakdown": self.score_breakdown,
                 "risk": {"level": self.risk_level, "reason": self.risk_reason},
- main
+                "traffic_fit": self.traffic_fit,
             },
         }
         return offer_payload
@@ -166,15 +159,12 @@ def normalize_offer(raw: OfferRaw, tracking_id_macro: str = "${SUBID}") -> Offer
         payout_usd=payout_usd,
         conversion_type=conversion_type,
         geo_allowed=geo_allowed,
- codex/update-cpagrip-offer-aggregator-ojcgo1
-
-        offer_title=raw.name,
- main
         epc=raw.epc,
         cr=raw.cr,
         incentive_allowed=raw.incentive_allowed,
         traffic_forbidden=raw.traffic_forbidden,
         cap=raw.cap,
+        offer_title=raw.name,
     )
 
     traffic_fit = _infer_traffic_fit(raw.traffic_allowed)
@@ -204,19 +194,13 @@ def normalize_offer(raw: OfferRaw, tracking_id_macro: str = "${SUBID}") -> Offer
         lp_type_guess=lp_type_guess,
         network_rules=raw.network_rules,
         risk_flag=score.risk_flag,
- codex/update-cpagrip-offer-aggregator-ojcgo1
-        score=score.score,
-        score_notes=score.notes,
-        missing_fields=missing_fields,
-
         risk_level=score.risk_level,
         risk_reason=score.risk_reason,
         score=score.score,
-        score_breakdown=[{"label": name, "value": value} for name, value in score.breakdown],
+        score_breakdown=[{"label": label, "value": value} for label, value in score.breakdown],
         score_notes=score.notes,
         missing_fields=missing_fields,
         traffic_fit=traffic_fit,
- main
         raw_dump=asdict(raw),
         updated_at=datetime.utcnow().isoformat() + "Z",
     )
@@ -230,7 +214,7 @@ def normalize_offers(raw_offers: List[OfferRaw | Dict[str, Any]], tracking_macro
             raw_item = item if isinstance(item, OfferRaw) else parse_offer(item)
             normalized.append(normalize_offer(raw_item, tracking_macro))
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"Failed to normalize offer {getattr(item, 'offer_id', '')}: {exc}")
+            errors.append(str(exc))
     normalized.sort(key=lambda off: off.score, reverse=True)
     return OfferNormalizationResult(offers=normalized, errors=errors)
 
@@ -267,8 +251,6 @@ def parse_offer(item: Dict[str, Any]) -> OfferRaw:
     )
 
 
- codex/update-cpagrip-offer-aggregator-ojcgo1
-
 def _infer_traffic_fit(allowed_sources: List[str]) -> str:
     text = " ".join(allowed_sources).lower()
     has_push = "push" in text
@@ -282,7 +264,6 @@ def _infer_traffic_fit(allowed_sources: List[str]) -> str:
     return "Unknown"
 
 
- main
 def _safe_float(value: Any) -> Optional[float]:
     try:
         if value in (None, ""):
