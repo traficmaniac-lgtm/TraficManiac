@@ -1,7 +1,7 @@
 DEFAULT_SETTINGS = {
-    "user_id": "demo_user",
-    "private_key": "demo_private_key",
-    "tracking_id": "",
+    "user_id": "2482254",
+    "private_key": "55945b018809d7d701d085456db133ba",
+    "tracking_id": "${SUBID}",
     "limit": 100,
     "showall": 1,
     "country": "",
@@ -12,23 +12,6 @@ DEFAULT_SETTINGS = {
     "max_complexity": 3,
     "sort_by": "profit_score",
 }
-
-RISK_KEYWORDS = [
-    "adult",
-    "gambling",
-    "crypto",
-    "loan",
-    "cbd",
-    "dating",
-    "sweepstakes",
-    "incent",
-    "forced",
-    "bot",
-    "vpn allowed",
-    "vpn required",
-    "brand",
-    "trademark",
-]
 
 GEO_TIERS = {
     "tier1": {
