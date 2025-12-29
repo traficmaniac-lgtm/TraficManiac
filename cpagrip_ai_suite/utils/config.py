@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 DEFAULT_SETTINGS = {
     "user_id": "2482254",
     "private_key": "55945b018809d7d701d085456db133ba",
@@ -29,3 +32,26 @@ GEO_TIERS = {
 }
 
 DESCRIPTION_TRIM = 220
+
+# Path to store user-overridable settings such as OpenAI credentials.
+
+APP_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
+
+
+def load_app_config() -> dict:
+    """Load persisted application config if it exists."""
+    if APP_CONFIG_PATH.exists():
+        try:
+            with APP_CONFIG_PATH.open("r", encoding="utf-8") as fp:
+                return json.load(fp)
+        except Exception:
+            # Ignore malformed user files; the UI will allow re-saving
+            return {}
+    return {}
+
+
+def save_app_config(payload: dict) -> None:
+    """Persist user settings (e.g., OpenAI API options) to disk."""
+    APP_CONFIG_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )

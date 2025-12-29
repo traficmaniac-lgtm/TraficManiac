@@ -8,7 +8,7 @@ from typing import List, Optional
 from ..core.cpagrip_client import CPAGripClient
 from ..core.offer_model import OfferNormalized, normalize_offers
 from ..prompts.strategy_packet import build_strategy_packet
-from ..utils.config import DEFAULT_SETTINGS
+from ..utils.config import DEFAULT_SETTINGS, load_app_config, save_app_config
 from .bindings_strategy import StrategyBindings
 from .widgets import LabeledEntry, LabeledSpinbox
 
@@ -27,23 +27,54 @@ class CPAOfferApp(ttk.Frame):
         self.sort_column: str | None = None
         self.sort_reverse = False
 
+        self.user_config = load_app_config()
+        self.top_n_var = tk.IntVar(value=int(DEFAULT_SETTINGS.get("ai_top_n", 50)))
+        self.risk_filter_var = tk.StringVar(value="all")
+        self.min_payout_var = tk.DoubleVar(value=0.0)
+        self.auto_sort_var = tk.BooleanVar(value=True)
+        self.offer_count_var = tk.StringVar(value="0 / 0")
+
+        self.api_key_var = tk.StringVar(value=self.user_config.get("OPENAI_API_KEY", ""))
+        self.api_model_var = tk.StringVar(value=self.user_config.get("OPENAI_MODEL", "gpt-4.1"))
+        self.api_temperature_var = tk.DoubleVar(value=float(self.user_config.get("OPENAI_TEMPERATURE", 0.2)))
+        self.api_temperature_label = tk.StringVar(value=f"{self.api_temperature_var.get():.2f}")
+        self.api_key_visible = tk.BooleanVar(value=False)
+        self.openai_status_var = tk.StringVar(value="config.json")
+
+        self.style = ttk.Style()
+        self._configure_style()
+
         self._build_ui()
         self.strategy_bindings = StrategyBindings(self)
 
+    def _configure_style(self) -> None:
+        try:
+            self.style.theme_use("clam")
+        except tk.TclError:
+            pass
+        self.style.configure("Card.TLabelframe", padding=10, borderwidth=2)
+        self.style.configure("Accent.TButton", padding=6)
+        self.style.configure("Inline.TLabel", font=("TkDefaultFont", 10, "bold"))
+
     def _build_ui(self) -> None:
-        self.columnconfigure(0, weight=1)
+        self.columnconfigure(0, weight=3)
+        self.columnconfigure(1, weight=2)
         self.rowconfigure(2, weight=1)
 
-        self.param_frame = ttk.LabelFrame(self, text="Параметры фида")
-        self.param_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=6)
+        self.param_frame = ttk.LabelFrame(self, text="Параметры фида", style="Card.TLabelframe")
+        self.param_frame.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=6)
         self._build_params(self.param_frame)
 
-        self.filter_frame = ttk.LabelFrame(self, text="Фильтр и ТОП-50")
-        self.filter_frame.grid(row=1, column=0, sticky="ew", padx=8, pady=6)
+        self.openai_frame = ttk.LabelFrame(self, text="Настройки OpenAI API", style="Card.TLabelframe")
+        self.openai_frame.grid(row=0, column=1, sticky="nsew", padx=(4, 8), pady=6)
+        self._build_openai_settings(self.openai_frame)
+
+        self.filter_frame = ttk.LabelFrame(self, text="Фильтры и подбор", style="Card.TLabelframe")
+        self.filter_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8, pady=6)
         self._build_filters(self.filter_frame)
 
         self.content_frame = ttk.Frame(self)
-        self.content_frame.grid(row=2, column=0, sticky="nsew", padx=8, pady=6)
+        self.content_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=8, pady=6)
         self.content_frame.columnconfigure(0, weight=1)
         self.content_frame.columnconfigure(1, weight=1)
         self.content_frame.rowconfigure(0, weight=1)
@@ -84,12 +115,85 @@ class CPAOfferApp(ttk.Frame):
             side=tk.LEFT, padx=4
         )
 
+    def _build_openai_settings(self, frame: ttk.LabelFrame) -> None:
+        ttk.Label(frame, text="API ключ и модель", style="Inline.TLabel").pack(anchor="w")
+
+        key_row = ttk.Frame(frame)
+        key_row.pack(fill=tk.X, pady=2)
+        ttk.Label(key_row, text="OPENAI_API_KEY").pack(side=tk.LEFT, padx=(0, 4))
+        self.api_key_entry = ttk.Entry(key_row, textvariable=self.api_key_var, width=34, show="•")
+        self.api_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Checkbutton(
+            key_row, text="показать", variable=self.api_key_visible, command=self._toggle_api_visibility
+        ).pack(side=tk.LEFT, padx=4)
+
+        model_row = ttk.Frame(frame)
+        model_row.pack(fill=tk.X, pady=2)
+        ttk.Label(model_row, text="Модель").pack(side=tk.LEFT, padx=(0, 4))
+        models = ("gpt-4.1", "gpt-4o-mini", "o3-mini")
+        ttk.Combobox(model_row, values=models, textvariable=self.api_model_var, state="readonly", width=18).pack(
+            side=tk.LEFT, padx=4
+        )
+
+        temp_row = ttk.Frame(frame)
+        temp_row.pack(fill=tk.X, pady=4)
+        ttk.Label(temp_row, text="Температура").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Scale(
+            temp_row,
+            from_=0.0,
+            to=1.0,
+            variable=self.api_temperature_var,
+            orient=tk.HORIZONTAL,
+            command=lambda v: self.api_temperature_label.set(f"{float(v):.2f}"),
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(temp_row, textvariable=self.api_temperature_label, width=6).pack(side=tk.LEFT, padx=4)
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill=tk.X, pady=6)
+        ttk.Button(btn_row, text="Сохранить", style="Accent.TButton", command=self.save_openai_settings).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(btn_row, text="Проверить", command=self.test_openai_settings).pack(side=tk.LEFT, padx=4)
+        ttk.Label(btn_row, textvariable=self.openai_status_var, foreground="#3f6b39").pack(side=tk.LEFT, padx=6)
+
+        ttk.Label(frame, text="Данные сохраняются в config.json", foreground="#6c6c6c").pack(
+            anchor="w", pady=(0, 4)
+        )
+
     def _build_filters(self, frame: ttk.LabelFrame) -> None:
         row1 = ttk.Frame(frame)
         row1.pack(fill=tk.X, pady=2)
         self.search_entry = LabeledEntry(row1, "поиск", "", width=30)
         self.search_entry.pack(side=tk.LEFT, padx=4)
-        ttk.Button(frame, text="Показать ТОП-50", command=self.apply_filters).pack(pady=2, padx=4, anchor="w")
+        ttk.Label(row1, text="Риск").pack(side=tk.LEFT, padx=(12, 4))
+        ttk.Combobox(
+            row1,
+            values=("all", "low", "medium", "high"),
+            textvariable=self.risk_filter_var,
+            state="readonly",
+            width=10,
+        ).pack(side=tk.LEFT)
+
+        row2 = ttk.Frame(frame)
+        row2.pack(fill=tk.X, pady=2)
+        ttk.Label(row2, text="Мин. payout").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Spinbox(row2, from_=0.0, to=200.0, increment=0.5, textvariable=self.min_payout_var, width=8).pack(
+            side=tk.LEFT
+        )
+        ttk.Label(row2, text="ТОП N").pack(side=tk.LEFT, padx=(12, 4))
+        ttk.Spinbox(row2, from_=5, to=200, increment=5, textvariable=self.top_n_var, width=6).pack(side=tk.LEFT)
+        ttk.Checkbutton(row2, text="Авто-сортировка по Score", variable=self.auto_sort_var).pack(
+            side=tk.LEFT, padx=(12, 4)
+        )
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill=tk.X, pady=4)
+        ttk.Button(btn_row, text="Применить фильтр", command=self.apply_filters).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(btn_row, text="Автоподбор топовых", style="Accent.TButton", command=self.auto_pick_top).pack(
+            side=tk.LEFT, padx=6
+        )
+        ttk.Button(btn_row, text="Сброс", command=self.reset_filters).pack(side=tk.LEFT, padx=6)
+        ttk.Label(btn_row, textvariable=self.offer_count_var, foreground="#4b5563").pack(side=tk.RIGHT)
 
     def _build_offer_list(self, parent: ttk.Frame) -> None:
         list_frame = ttk.Frame(parent)
@@ -243,18 +347,55 @@ class CPAOfferApp(ttk.Frame):
         if normalization.errors:
             messagebox.showwarning("Нормализация", "\n".join(normalization.errors))
         self.offers = normalization.offers
-        self.apply_filters()
+        self.reset_filters()
 
     def apply_filters(self) -> None:
         query = self.search_entry.get().strip().lower()
-        offers = self.offers
+        offers = list(self.offers)
         if query:
             offers = [
                 o
                 for o in offers
                 if query in o.name.lower() or (o.description or "").lower().find(query) >= 0
             ]
-        self.filtered = offers[:50]
+        risk = (self.risk_filter_var.get() or "all").lower()
+        if risk != "all":
+            offers = [o for o in offers if o.risk_level.lower() == risk]
+        try:
+            min_payout = float(self.min_payout_var.get())
+        except (TypeError, ValueError):
+            min_payout = 0.0
+        if min_payout > 0:
+            offers = [o for o in offers if o.payout_usd >= min_payout]
+        if self.auto_sort_var.get():
+            offers.sort(key=lambda o: o.score, reverse=True)
+        self.filtered = offers
+        self._refresh_tree()
+        if self.filtered:
+            self.tree.selection_set("0")
+            self.on_select_offer(None)
+
+    def auto_pick_top(self) -> None:
+        if not self.offers:
+            messagebox.showinfo("ТОП", "Сначала загрузите офферы")
+            return
+        try:
+            top_n = max(1, int(self.top_n_var.get()))
+        except (TypeError, ValueError):
+            top_n = 50
+        ranked = sorted(self.offers, key=lambda o: o.score, reverse=True)[:top_n]
+        self.filtered = ranked
+        self._refresh_tree()
+        if self.filtered:
+            self.tree.selection_set("0")
+            self.on_select_offer(None)
+
+    def reset_filters(self) -> None:
+        self.search_entry.set("")
+        self.risk_filter_var.set("all")
+        self.min_payout_var.set(0.0)
+        self.auto_sort_var.set(True)
+        self.filtered = list(self.offers)
         self._refresh_tree()
         if self.filtered:
             self.tree.selection_set("0")
@@ -268,6 +409,7 @@ class CPAOfferApp(ttk.Frame):
         if self.sort_column and self.sort_column != "rank":
             offers.sort(key=self._sort_key, reverse=self.sort_reverse)
         self.displayed = offers
+        self.offer_count_var.set(f"{len(offers)} / {len(self.offers)}")
 
         for idx, offer in enumerate(offers):
             geo_display = ",".join(offer.geo_allowed[:3])
@@ -469,6 +611,40 @@ class CPAOfferApp(ttk.Frame):
         self.detail_text.delete("1.0", tk.END)
         self.detail_text.insert(tk.END, "\n".join(auto_text))
         self.strategy_json = packet
+
+    def _toggle_api_visibility(self) -> None:
+        self.api_key_entry.configure(show="" if self.api_key_visible.get() else "•")
+
+    def save_openai_settings(self) -> None:
+        key = self.api_key_var.get().strip()
+        if not key:
+            messagebox.showwarning("OpenAI", "Заполните API ключ")
+            return
+        try:
+            temperature = round(float(self.api_temperature_var.get()), 2)
+        except (TypeError, ValueError):
+            temperature = 0.2
+            self.api_temperature_var.set(temperature)
+        config = load_app_config()
+        config.update(
+            {
+                "OPENAI_API_KEY": key,
+                "OPENAI_MODEL": self.api_model_var.get() or "gpt-4.1",
+                "OPENAI_TEMPERATURE": temperature,
+            }
+        )
+        save_app_config(config)
+        self.openai_status_var.set("Сохранено")
+        messagebox.showinfo("OpenAI", "Настройки сохранены в config.json")
+
+    def test_openai_settings(self) -> None:
+        key = self.api_key_var.get().strip()
+        if not key:
+            messagebox.showwarning("OpenAI", "Введите ключ для проверки")
+            return
+        status = f"{self.api_model_var.get()} | T={float(self.api_temperature_var.get()):.2f}"
+        self.openai_status_var.set(status)
+        messagebox.showinfo("OpenAI", "Настройки готовы. Генерация будет использовать эти параметры.")
 
     def _recalc_simulator(self, offer: OfferNormalized | None = None) -> None:
         try:
