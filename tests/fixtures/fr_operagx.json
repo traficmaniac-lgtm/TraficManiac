@@ -1,0 +1,10 @@
+{
+  "task": "build_profitable_strategy",
+  "traffic_source": "PropellerAds",
+  "network": "CPAGrip",
+  "offer": {"meta": {}, "links": {}, "geo": {"allowed": ["FR"], "restricted": []}, "money": {"payout_usd": 2.4, "currency": "EUR", "epc": 0.15, "cr": 0.05, "cap_daily": null}, "flow": {"conversion_type": "App Install", "incentive_allowed": false, "kyc_required": null, "sms_pin": null}, "traffic": {"allowed_sources": ["propeller"], "forbidden_sources": [], "adult_ok": false, "brand_bidding": null}, "tech": {"device": ["desktop"], "os": ["windows"], "browser": ["chrome"], "connection": []}, "meta": {"network": "CPAGrip"}},
+  "tracking": {"required_macros": ["${SUBID}"], "final_url_example": "https://track?subid={subid}"},
+  "constraints": {"test_budget_usd": 30, "goal": "profit_fast_and_safe", "ban_risk_priority": "high"},
+  "context": {"geo_timezone": "Europe/Paris", "language": "ru", "experience_level": "advanced"},
+  "questions_for_ai": []
+}
