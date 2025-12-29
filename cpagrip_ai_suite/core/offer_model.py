@@ -1,35 +1,119 @@
-from dataclasses import dataclass, asdict
-from typing import Any, Dict, List
+from __future__ import annotations
 
-from .offer_classifier import classify_offer
-from .scoring import calculate_profit_score
-from ..utils.config import DESCRIPTION_TRIM
-from ..utils.geo import detect_geo_tier, geo_weight
-from ..utils.text import extract_geo_list, truncate
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from .scoring import OfferScore, score_offer
+from ..utils.geo import extract_geo_list, normalize_country_codes
+from ..utils.text import split_csv
+
+
+@dataclass
+class OfferRaw:
+    offer_id: str
+    name: str
+    description: Optional[str]
+    payout: float
+    conversion_type: Optional[str]
+    category: Optional[str]
+    allowed_countries: List[str]
+    forbidden_countries: List[str]
+    device: List[str]
+    os: List[str]
+    traffic_allowed: List[str]
+    traffic_forbidden: List[str]
+    preview_url: Optional[str]
+    tracking_template: Optional[str]
+    epc: Optional[float]
+    cr: Optional[float]
+    cap: Optional[float]
+    network_rules: Optional[str]
+    incentive_allowed: Optional[bool]
+    currency: Optional[str]
+    offerlink: Optional[str]
 
 
 @dataclass
 class OfferNormalized:
     offer_id: str
-    title: str
-    payout: float
-    geo_raw: str
-    geo_list: List[str]
-    offerlink: str
-    description_short: str
-    restrictions_short: str
-    allowed_traffic_short: str
-    kind: str
-    complexity: int
-    geo_tier: str
-    geo_weight: float
-    risk_flags: List[str]
-    profit_score: float
-    score_explain: str
-    confidence: float
+    name: str
+    description: Optional[str]
+    geo_allowed: List[str]
+    geo_restricted: List[str]
+    payout_usd: float
+    currency: Optional[str]
+    epc: Optional[float]
+    cr: Optional[float]
+    cap_daily: Optional[float]
+    conversion_type: Optional[str]
+    category: Optional[str]
+    incentive_allowed: Optional[bool]
+    traffic_allowed: List[str]
+    traffic_forbidden: List[str]
+    devices: List[str]
+    os: List[str]
+    browser: List[str]
+    connection: List[str]
+    tracking_url: str
+    preview_url: Optional[str]
+    lp_type_guess: Optional[str]
+    network_rules: Optional[str]
+    risk_flag: bool
+    score: float
+    score_notes: str
+    missing_fields: List[str]
+    raw_dump: Dict[str, Any]
+    updated_at: str
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+    def to_strategy_offer(self) -> Dict[str, Any]:
+        missing = list(self.missing_fields)
+        offer_payload = {
+            "geo": {"allowed": self.geo_allowed, "restricted": self.geo_restricted},
+            "money": {
+                "payout_usd": self.payout_usd,
+                "currency": self.currency,
+                "epc": self.epc,
+                "cr": self.cr,
+                "cap_daily": self.cap_daily,
+            },
+            "flow": {
+                "conversion_type": self.conversion_type,
+                "incentive_allowed": self.incentive_allowed,
+                "kyc_required": _flag_from_rules(self.network_rules, "kyc"),
+                "sms_pin": _flag_from_rules(self.conversion_type or "", "pin"),
+            },
+            "traffic": {
+                "allowed_sources": self.traffic_allowed,
+                "forbidden_sources": self.traffic_forbidden,
+                "adult_ok": _flag_from_rules(self.network_rules, "adult"),
+                "brand_bidding": _flag_from_rules(self.network_rules, "brand"),
+            },
+            "tech": {
+                "device": self.devices,
+                "os": self.os,
+                "browser": self.browser,
+                "connection": self.connection,
+            },
+            "links": {
+                "tracking_url": self.tracking_url,
+                "preview_url": self.preview_url,
+                "lp_type_guess": self.lp_type_guess,
+            },
+            "meta": {
+                "id": self.offer_id,
+                "name": self.name,
+                "category": self.category,
+                "network": "CPAGrip",
+                "updated_at": self.updated_at,
+                "missing_fields": missing,
+                "raw_dump": self.raw_dump,
+            },
+        }
+        return offer_payload
 
 
 @dataclass
@@ -38,55 +122,154 @@ class OfferNormalizationResult:
     errors: List[str]
 
 
-def normalize_offer(raw: Dict[str, Any]) -> OfferNormalized:
-    offer_id = str(raw.get("id", "") or "")
-    title = raw.get("title", "Untitled Offer")
-    payout = float(raw.get("payout", 0.0) or 0.0)
-    geo_raw = raw.get("countries", "")
-    geo_list = extract_geo_list(geo_raw)
-    offerlink = raw.get("offerlink", "")
-    desc = raw.get("description", "")
-    restrictions = raw.get("restrictions", raw.get("allowed_countries", ""))
-    allowed_traffic = raw.get("allowed_traffic", raw.get("traffic_source", ""))
+def normalize_offer(raw: OfferRaw, tracking_id_macro: str = "${SUBID}") -> OfferNormalized:
+    missing_fields: List[str] = []
+    geo_allowed = normalize_country_codes(raw.allowed_countries)
+    geo_restricted = normalize_country_codes(raw.forbidden_countries)
+    conversion_type = raw.conversion_type
+    if conversion_type is None:
+        missing_fields.append("conversion_type")
+    payout_usd = raw.payout or 0.0
+    currency = raw.currency or "USD"
+    if raw.currency is None:
+        missing_fields.append("currency")
 
-    text_for_classification = " ".join([title, desc, raw.get("type", ""), raw.get("offer_type", "")])
-    classification = classify_offer(text_for_classification, offer_type=raw.get("type", ""))
-    geo_tier = detect_geo_tier(geo_list)
-    score = calculate_profit_score(
-        payout=payout,
-        tier=geo_tier,
-        complexity=classification.complexity,
-        risk_flags=classification.risk_flags,
-        kind=classification.kind,
+    tracking_url = build_tracking_url(raw, tracking_id_macro)
+    if tracking_url is None:
+        missing_fields.append("tracking_url")
+        tracking_url = ""
+
+    preview_url = raw.preview_url or raw.offerlink
+    if preview_url is None:
+        missing_fields.append("preview_url")
+
+    lp_type_guess = "direct_link"
+    if preview_url and "smart" in preview_url.lower():
+        lp_type_guess = "smartlink"
+
+    score: OfferScore = score_offer(
+        payout_usd=payout_usd,
+        conversion_type=conversion_type,
+        geo_allowed=geo_allowed,
+        epc=raw.epc,
+        cr=raw.cr,
+        incentive_allowed=raw.incentive_allowed,
+        traffic_forbidden=raw.traffic_forbidden,
+        cap=raw.cap,
     )
 
     return OfferNormalized(
-        offer_id=offer_id,
-        title=title,
-        payout=payout,
-        geo_raw=geo_raw,
-        geo_list=geo_list,
-        offerlink=offerlink,
-        description_short=truncate(desc, DESCRIPTION_TRIM),
-        restrictions_short=truncate(restrictions, DESCRIPTION_TRIM),
-        allowed_traffic_short=truncate(allowed_traffic, DESCRIPTION_TRIM),
-        kind=classification.kind,
-        complexity=classification.complexity,
-        geo_tier=geo_tier,
-        geo_weight=geo_weight(geo_tier),
-        risk_flags=classification.risk_flags,
-        profit_score=score.profit_score,
-        score_explain=score.explanation,
-        confidence=classification.confidence,
+        offer_id=raw.offer_id,
+        name=raw.name,
+        description=raw.description,
+        geo_allowed=geo_allowed,
+        geo_restricted=geo_restricted,
+        payout_usd=payout_usd,
+        currency=currency,
+        epc=raw.epc,
+        cr=raw.cr,
+        cap_daily=raw.cap,
+        conversion_type=conversion_type,
+        category=raw.category,
+        incentive_allowed=raw.incentive_allowed,
+        traffic_allowed=raw.traffic_allowed,
+        traffic_forbidden=raw.traffic_forbidden,
+        devices=raw.device,
+        os=raw.os,
+        browser=[],
+        connection=[],
+        tracking_url=tracking_url,
+        preview_url=preview_url,
+        lp_type_guess=lp_type_guess,
+        network_rules=raw.network_rules,
+        risk_flag=score.risk_flag,
+        score=score.score,
+        score_notes=score.notes,
+        missing_fields=missing_fields,
+        raw_dump=asdict(raw),
+        updated_at=datetime.utcnow().isoformat() + "Z",
     )
 
 
-def normalize_offers(raw_offers: List[Dict[str, Any]]) -> OfferNormalizationResult:
-    normalized = []
-    errors = []
+def normalize_offers(raw_offers: List[OfferRaw | Dict[str, Any]], tracking_macro: str = "${SUBID}") -> OfferNormalizationResult:
+    normalized: List[OfferNormalized] = []
+    errors: List[str] = []
     for item in raw_offers:
         try:
-            normalized.append(normalize_offer(item))
+            raw_item = item if isinstance(item, OfferRaw) else parse_offer(item)
+            normalized.append(normalize_offer(raw_item, tracking_macro))
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"Failed to normalize offer {item.get('id', '')}: {exc}")
+            errors.append(f"Failed to normalize offer {getattr(item, 'offer_id', '')}: {exc}")
+    normalized.sort(key=lambda off: off.score, reverse=True)
     return OfferNormalizationResult(offers=normalized, errors=errors)
+
+
+def parse_offer(item: Dict[str, Any]) -> OfferRaw:
+    allowed_countries = extract_geo_list(item.get("accepted_countries") or item.get("countries") or "")
+    forbidden_countries = extract_geo_list(item.get("forbidden", ""))
+    device = split_csv(item.get("device", ""))
+    os_list = split_csv(item.get("os", ""))
+    traffic_allowed = split_csv(item.get("traffic_allowed", item.get("traffic_source", "")))
+    traffic_forbidden = split_csv(item.get("traffic_forbidden", ""))
+    return OfferRaw(
+        offer_id=str(item.get("id") or item.get("offer_id") or ""),
+        name=item.get("title", "Без названия"),
+        description=item.get("description"),
+        payout=float(item.get("payout") or 0.0),
+        conversion_type=item.get("type") or item.get("offer_type"),
+        category=item.get("category") or item.get("vertical"),
+        allowed_countries=allowed_countries,
+        forbidden_countries=forbidden_countries,
+        device=device,
+        os=os_list,
+        traffic_allowed=traffic_allowed,
+        traffic_forbidden=traffic_forbidden,
+        preview_url=item.get("offerphoto") or item.get("preview_url") or item.get("offerimage"),
+        tracking_template=item.get("offerlink"),
+        epc=_safe_float(item.get("epc")),
+        cr=_safe_float(item.get("cr")),
+        cap=_safe_float(item.get("cap")),
+        network_rules=item.get("network_rules") or item.get("restrictions"),
+        incentive_allowed=_safe_bool(item.get("incentive_allowed"), item.get("incent")),
+        currency=item.get("currency"),
+        offerlink=item.get("offerlink"),
+    )
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_bool(*values: Any) -> Optional[bool]:
+    for val in values:
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            if val.lower() in {"1", "true", "yes", "allowed"}:
+                return True
+            if val.lower() in {"0", "false", "no", "not allowed"}:
+                return False
+    return None
+
+
+def build_tracking_url(raw: OfferRaw, tracking_id_macro: str) -> Optional[str]:
+    if raw.tracking_template:
+        if "tracking_id=" in raw.tracking_template or "subid=" in raw.tracking_template:
+            return raw.tracking_template.replace("${SUBID}", tracking_id_macro)
+    if raw.offer_id:
+        return f"https://www.cpagrip.com/show.php?offer_id={raw.offer_id}&tracking_id={tracking_id_macro}"
+    return None
+
+
+def _flag_from_rules(value: Optional[str], keyword: str) -> Optional[bool]:
+    if value is None:
+        return None
+    text = value.lower()
+    if keyword.lower() in text:
+        return True
+    return False
